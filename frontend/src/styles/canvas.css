@@ -1,0 +1,114 @@
+/* React Flow canvas polish — works for both light & dark themes */
+
+.react-flow {
+  --lgs-edge: #94a3b8;
+}
+
+.react-flow__node {
+  cursor: grab;
+  transition: filter 0.15s ease;
+}
+
+.react-flow__node:active {
+  cursor: grabbing;
+}
+
+.react-flow__node.selected {
+  z-index: 10;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #4f46e5;
+  stroke-width: 3;
+}
+
+.react-flow__handle {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.react-flow__handle:hover {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.18);
+}
+
+.react-flow__handle-connecting {
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.25);
+}
+
+/* Controls */
+.react-flow__controls {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.react-flow__controls-button {
+  background-color: #ffffff;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  color: #334155;
+  width: 30px;
+  height: 30px;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #f1f5f9;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+/* MiniMap */
+.react-flow__minimap {
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+
+/* Attribution */
+.react-flow__attribution {
+  background: transparent;
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* ---- Dark theme overrides -------------------------------------------- */
+[data-theme='dark'] .react-flow__controls {
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .react-flow__controls-button {
+  background-color: #1e293b;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  color: #cbd5e1;
+}
+
+[data-theme='dark'] .react-flow__controls-button:hover {
+  background-color: #334155;
+}
+
+[data-theme='dark'] .react-flow__minimap {
+  background-color: #111827;
+  border-color: rgba(148, 163, 184, 0.16);
+}
+
+[data-theme='dark'] .react-flow__handle {
+  border-color: #0b1120;
+}
+
+[data-theme='dark'] .react-flow__edge-path {
+  stroke: #64748b;
+}
