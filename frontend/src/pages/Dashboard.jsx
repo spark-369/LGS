@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -15,9 +15,9 @@ import {
   Stack,
   Snackbar,
   Alert,
-  Divider,
   Paper,
   Tooltip,
+  Pagination,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SearchIcon from '@mui/icons-material/SearchRounded';
@@ -29,13 +29,15 @@ import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import { useNavigate } from 'react-router-dom';
-import { circuitAPI } from '../services/api';
+import { circuitAPI, getErrorMessage } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import CircuitCard from '../components/circuit/CircuitCard';
 import { SkeletonGrid } from '../components/circuit/SkeletonCard';
 import EmptyState from '../components/circuit/EmptyState';
 import { GRADIENTS } from '../theme/theme';
+
+const PAGE_SIZE = 12;
 
 function StatCard({ icon, label, value, color }) {
   return (
@@ -86,11 +88,16 @@ function StatCard({ icon, label, value, color }) {
 function Dashboard() {
   const [circuits, setCircuits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [view, setView] = useState('grid');
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuCircuit, setMenuCircuit] = useState(null);
@@ -100,46 +107,60 @@ function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const showMessage = (message, severity = 'success') =>
-    setSnackbar({ open: true, message, severity });
+  const showMessage = useCallback(
+    (message, severity = 'success') => setSnackbar({ open: true, message, severity }),
+    []
+  );
 
-  const fetchCircuits = async () => {
+  // Debounce the search box so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const fetchCircuits = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      const { data } = await circuitAPI.getAll();
+      const { data } = await circuitAPI.getAll({
+        page,
+        limit: PAGE_SIZE,
+        search: search || undefined,
+      });
       setCircuits(data.circuits || []);
-    } catch (err) {
-      showMessage('Failed to load circuits', 'error');
+      setTotal(data.pagination?.total ?? (data.circuits || []).length);
+    } catch (error) {
+      setLoadError(getErrorMessage(error, 'Failed to load circuits'));
+      setCircuits([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search]);
 
   useEffect(() => {
     fetchCircuits();
-  }, []);
+  }, [fetchCircuits]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return circuits;
-    return circuits.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(q) ||
-        c.description?.toLowerCase().includes(q)
-    );
-  }, [circuits, search]);
+  // The server already filtered and paginated the list.
+  const filtered = circuits;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const stats = useMemo(
     () => ({
-      total: circuits.length,
-      nodes: circuits.reduce((a, c) => a + (c.nodes?.length || 0), 0),
+      total,
+      nodes: circuits.reduce((acc, c) => acc + (c.nodes?.length || c.gateCount || 0), 0),
       public: circuits.filter((c) => c.isPublic).length,
     }),
-    [circuits]
+    [circuits, total]
   );
 
   const handleCreate = async () => {
     setCreating(true);
+    setCreateError('');
     try {
       const { data } = await circuitAPI.create({
         name: newName.trim() || 'Untitled Circuit',
@@ -149,8 +170,8 @@ function Dashboard() {
       setNewName('');
       setNewDesc('');
       navigate(`/editor/${data.circuit._id}`);
-    } catch (err) {
-      showMessage('Failed to create circuit', 'error');
+    } catch (error) {
+      setCreateError(getErrorMessage(error, 'Failed to create circuit'));
     } finally {
       setCreating(false);
     }
@@ -161,10 +182,12 @@ function Dashboard() {
     setDeleting(true);
     try {
       await circuitAPI.delete(deleteTarget._id);
-      setCircuits((prev) => prev.filter((c) => c._id !== deleteTarget._id));
       showMessage('Circuit deleted');
-    } catch {
-      showMessage('Failed to delete circuit', 'error');
+      // Step back a page when the last item on it disappears.
+      if (circuits.length === 1 && page > 1) setPage((p) => p - 1);
+      else fetchCircuits();
+    } catch (error) {
+      showMessage(getErrorMessage(error, 'Failed to delete circuit'), 'error');
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
@@ -173,11 +196,12 @@ function Dashboard() {
 
   const handleDuplicate = async (id) => {
     try {
-      const { data } = await circuitAPI.duplicate(id);
-      setCircuits((prev) => [data.circuit, ...prev]);
+      await circuitAPI.duplicate(id);
       showMessage('Circuit duplicated');
-    } catch {
-      showMessage('Failed to duplicate circuit', 'error');
+      setPage(1);
+      fetchCircuits();
+    } catch (error) {
+      showMessage(getErrorMessage(error, 'Failed to duplicate circuit'), 'error');
     }
   };
 
@@ -198,16 +222,15 @@ function Dashboard() {
   };
 
   const togglePublic = async (target) => {
+    const next = !target.isPublic;
     try {
-      await circuitAPI.togglePublic(target._id);
+      await circuitAPI.togglePublic(target._id, next);
       setCircuits((prev) =>
-        prev.map((c) =>
-          c._id === target._id ? { ...c, isPublic: !c.isPublic } : c
-        )
+        prev.map((c) => (c._id === target._id ? { ...c, isPublic: next } : c))
       );
-      showMessage(target.isPublic ? 'Made private' : 'Made public');
-    } catch {
-      showMessage('Failed to update visibility', 'error');
+      showMessage(next ? 'Circuit is now public' : 'Circuit is now private');
+    } catch (error) {
+      showMessage(getErrorMessage(error, 'Failed to update visibility'), 'error');
     }
   };
 
@@ -283,15 +306,15 @@ function Dashboard() {
           <Typography variant="h6" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             My Circuits
             {!loading && (
-              <Chip size="small" label={filtered.length} sx={{ fontWeight: 700, ml: 0.5 }} />
+              <Chip size="small" label={total} sx={{ fontWeight: 700, ml: 0.5 }} />
             )}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField
               size="small"
               placeholder="Search circuits…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               sx={{ width: { xs: '100%', sm: 280 } }}
               InputProps={{
                 startAdornment: (
@@ -335,6 +358,21 @@ function Dashboard() {
           </Stack>
         </Stack>
 
+        {/* Error banner */}
+        {loadError && !loading && (
+          <Alert
+            severity="error"
+            sx={{ mb: 3 }}
+            action={
+              <Button color="inherit" size="small" onClick={fetchCircuits}>
+                Retry
+              </Button>
+            }
+          >
+            {loadError}
+          </Alert>
+        )}
+
         {/* Grid */}
         <Grid container spacing={3}>
           {loading && <SkeletonGrid count={6} Grid={Grid} />}
@@ -358,8 +396,23 @@ function Dashboard() {
             ))}
         </Grid>
 
+        {/* Pagination */}
+        {!loading && totalPages > 1 && (
+          <Stack alignItems="center" sx={{ mt: 4 }}>
+            <Pagination
+              page={page}
+              count={totalPages}
+              onChange={(_, value) => setPage(value)}
+              color="primary"
+              shape="rounded"
+              showFirstButton
+              showLastButton
+            />
+          </Stack>
+        )}
+
         {/* Empty state */}
-        {!loading && filtered.length === 0 && (
+        {!loading && filtered.length === 0 && !loadError && (
           <Grid container>
             <EmptyState
               icon={search ? <SearchIcon fontSize="large" /> : <MemoryRoundedIcon fontSize="large" />}
@@ -380,6 +433,11 @@ function Dashboard() {
       <Dialog open={createOpen} onClose={() => !creating && setCreateOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Create New Circuit</DialogTitle>
         <DialogContent>
+          {createError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {createError}
+            </Alert>
+          )}
           <TextField
             autoFocus
             margin="dense"
@@ -388,6 +446,7 @@ function Dashboard() {
             fullWidth
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
+            inputProps={{ maxLength: 100 }}
             sx={{ mt: 1, mb: 1 }}
           />
           <TextField
@@ -399,6 +458,8 @@ function Dashboard() {
             rows={3}
             value={newDesc}
             onChange={(e) => setNewDesc(e.target.value)}
+            inputProps={{ maxLength: 500 }}
+            helperText={`${newDesc.length}/500`}
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>

@@ -13,7 +13,7 @@ Production-grade MERN stack application for designing, simulating, and sharing d
 | **Auth**           | JWT (jsonwebtoken), bcrypt                               |
 | **Validation**     | express-validator, zod                                   |
 | **Infrastructure** | Docker, Docker Compose, Nginx                            |
-| **Dev Tooling**    | ESLint 9, Vitest 2, Jest 29                              |
+| **Dev Tooling**    | ESLint 9, Docker, Docker Compose                         |
 
 ---
 
@@ -64,14 +64,19 @@ Production-grade MERN stack application for designing, simulating, and sharing d
 ```
 v1/
 ├── docker-compose.yml          # Orchestration: mongodb, backend, frontend
+├── .env                        # JWT_SECRET / CLIENT_URL for compose
 ├── backend/
-│   ├── Dockerfile              # Multi-stage Node 20 Alpine build
-│   ├── .gitignore
+│   ├── Dockerfile              # Multi-stage Node 20 Alpine build + healthcheck
+│   ├── .dockerignore
+│   ├── .env                    # PORT, MONGODB_URI, JWT_SECRET, CLIENT_URL
+│   ├── eslint.config.js        # ESLint 9 flat config
 │   ├── package.json
 │   └── src/
-│       ├── server.js           # App bootstrap, CORS, error handling
+│       ├── server.js           # Bootstrap, CORS, security headers, shutdown
 │       ├── config/
-│       │   └── db.js           # Mongoose connection
+│       │   └── db.js           # Mongoose connection + lifecycle logging
+│       ├── constants/
+│       │   └── gates.js        # Gate type enum + input counts (source of truth)
 │       ├── models/
 │       │   ├── User.js         # email, password (bcrypt), name
 │       │   └── Circuit.js      # name, description, owner, nodes, edges, isPublic
@@ -79,38 +84,47 @@ v1/
 │       │   ├── authController.js
 │       │   └── circuitController.js
 │       ├── middleware/
-│       │   ├── auth.js         # JWT verification, user attachment
-│       │   └── validation.js   # express-validator chains + zod schemas
+│       │   ├── auth.js         # authenticate + optionalAuth
+│       │   ├── validation.js   # express-validator chains + zod schemas
+│       │   ├── rateLimit.js    # Dependency-free fixed-window limiter
+│       │   └── errorHandler.js # ApiError + centralised handler
 │       ├── routes/
 │       │   ├── auth.js
 │       │   ├── circuits.js
 │       │   └── health.js
-│       └── services/
-│           └── simulation.js   # 39-gate logic evaluation engine
+│       ├── services/
+│       │   └── simulation.js   # Gate evaluation engine
+│       └── utils/
+│           └── strings.js      # escapeRegex, normalizeText
 └── frontend/
-    ├── Dockerfile              # Node builder + nginx:alpine
-    ├── nginx.conf              # SPA fallback, /api proxy
-    ├── .gitignore
+    ├── Dockerfile              # Node builder + nginx:alpine + healthcheck
+    ├── nginx.conf              # SPA fallback, gzip, /api proxy
+    ├── .dockerignore
+    ├── .env                    # VITE_API_URL
+    ├── eslint.config.js
     ├── package.json
-    ├── vite.config.js
+    ├── vite.config.js          # Dev proxy + vendor chunk splitting
     └── src/
-        ├── main.jsx            # Provider stack: Router, Theme, Auth
-        ├── App.jsx              # Routes, guards, transitions
+        ├── main.jsx            # Provider stack: ErrorBoundary, Router, Theme, Auth
+        ├── App.jsx             # Lazy routes, guards, header visibility
         ├── theme/
         │   ├── theme.js         # MUI theme factory, palette, shadows
         │   └── ColorModeContext.jsx
         ├── store/
         │   └── authStore.js     # Zustand auth state + localStorage sync
         ├── services/
-        │   └── api.js           # Axios instance, interceptors, auth/circuit APIs
+        │   └── api.js           # Axios instance, interceptors, API surface
         ├── utils/
-        │   └── simulation.js    # Client-side combinational logic evaluator
+        │   ├── gates.js         # Gate types, pin counts/labels, families, palette
+        │   ├── gateTemplates.js # Default node data per gate
+        │   ├── circuit.js       # Serialize / deserialize helpers
+        │   └── simulation.js    # Client-side combinational evaluator
         ├── pages/
         │   ├── Login.jsx
         │   ├── Register.jsx
-        │   ├── Dashboard.jsx    # Circuit CRUD, search, pagination, stats
+        │   ├── Dashboard.jsx    # Circuit CRUD, server search, pagination, stats
         │   ├── PublicCircuits.jsx
-        │   ├── Editor.jsx       # React Flow canvas, gate palette, save
+        │   ├── Editor.jsx       # React Flow canvas, palette, save, unsaved guard
         │   └── NotFound.jsx
         ├── components/
         │   ├── Header.jsx
@@ -120,8 +134,11 @@ v1/
         │   ├── auth/AuthLayout.jsx
         │   ├── canvas/Toolbar.jsx
         │   ├── circuit/ (CircuitCard, EmptyState, SkeletonCard)
-        │   ├── common/ConfirmDialog.jsx
-        │   └── gates/LogicGateNode.jsx
+        │   ├── common/ (ConfirmDialog, ErrorBoundary, LoadingScreen)
+        │   └── gates/
+        │       ├── LogicGateNode.jsx  # Canvas node (header + pins + symbol)
+        │       ├── GateSymbol.jsx     # SVG gate symbols (AND/OR/XOR/NOT/MUX…)
+        │       └── GatePin.jsx        # Labelled pin row + anchored Handle
         ├── styles/
         │   ├── global.css
         │   └── canvas.css
@@ -156,16 +173,21 @@ cd frontend && npm install && cd ..
 
 **2. Configure environment**
 
-Create `backend/.env`:
+`backend/.env` ships with working development defaults. Set a strong
+`JWT_SECRET` before any non-local deployment:
 
 ```env
 PORT=5000
+NODE_ENV=development
 MONGODB_URI=mongodb://localhost:27017/logic-gate-simulator
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 JWT_EXPIRE=7d
-NODE_ENV=development
 CLIENT_URL=http://localhost:5173
+JSON_BODY_LIMIT=5mb
 ```
+
+`frontend/.env` only needs `VITE_API_URL=/api` (the default) unless the API
+lives on another origin.
 
 **3. Start MongoDB**
 
@@ -199,9 +221,10 @@ Base URL: `http://localhost:5000/api`
 
 ### Health
 
-| Method | Endpoint         | Auth | Description          |
-| ------ | ---------------- | ---- | -------------------- |
-| `GET`  | `/health/health` | No   | Service health check |
+| Method | Endpoint       | Auth | Description                          |
+| ------ | -------------- | ---- | ------------------------------------ |
+| `GET`  | `/health/health` | No | Service health + uptime              |
+| `GET`  | `/health/meta`   | No | API contract / available endpoints   |
 
 ### Authentication
 
@@ -212,18 +235,34 @@ Base URL: `http://localhost:5000/api`
 | `GET`  | `/auth/me`       | Yes  | Get current user                          |
 | `POST` | `/auth/refresh`  | Yes  | Refresh JWT                               |
 
+Auth endpoints are rate limited to **10 requests / 15 min / IP**.
+
 ### Circuits
 
-| Method   | Endpoint                  | Auth | Description                                                       |
-| -------- | ------------------------- | ---- | ----------------------------------------------------------------- |
-| `GET`    | `/circuits/public`        | No   | List public circuits                                              |
-| `POST`   | `/circuits`               | Yes  | Create circuit `{ name?, description?, isPublic? }`               |
-| `GET`    | `/circuits`               | Yes  | List user circuits (query: `page`, `limit`, `search`, `isPublic`) |
-| `GET`    | `/circuits/:id`           | Yes  | Get circuit (owner or public)                                     |
-| `PUT`    | `/circuits/:id`           | Yes  | Update circuit (owner only)                                       |
-| `PATCH`  | `/circuits/:id/public`    | Yes  | Toggle public/private (owner only)                                |
-| `DELETE` | `/circuits/:id`           | Yes  | Delete circuit (owner only)                                       |
-| `POST`   | `/circuits/:id/duplicate` | Yes  | Duplicate circuit                                                 |
+| Method   | Endpoint                  | Auth | Description                                                             |
+| -------- | ------------------------- | ---- | ----------------------------------------------------------------------- |
+| `GET`    | `/circuits/public`        | No\* | Paginated public gallery (query: `page`, `limit`, `search`)             |
+| `POST`   | `/circuits`               | Yes  | Create circuit `{ name, description?, isPublic?, nodes?, edges? }`      |
+| `GET`    | `/circuits`               | Yes  | List own circuits (query: `page`, `limit`, `search`, `isPublic`, `sort`) |
+| `GET`    | `/circuits/:id`           | Yes  | Get circuit (owner or public)                                           |
+| `PUT`    | `/circuits/:id`           | Yes  | Update circuit (owner only)                                             |
+| `PATCH`  | `/circuits/:id/public`    | Yes  | Set visibility `{ isPublic }` or toggle (owner only)                    |
+| `POST`   | `/circuits/:id/duplicate` | Yes  | Duplicate circuit                                                       |
+| `POST`   | `/circuits/:id/simulate`  | Yes  | Evaluate stored circuit, returns resolved `outputs`                     |
+| `DELETE` | `/circuits/:id`           | Yes  | Delete circuit (owner only)                                             |
+
+\* `GET /circuits/public` works signed out and is enriched with an `isOwner`
+flag when a valid token is supplied. `sort` accepts `recent` (default), `name`
+or `gates`.
+
+All list endpoints return a pagination envelope:
+
+```json
+{
+  "circuits": [],
+  "pagination": { "page": 1, "limit": 12, "total": 0, "pages": 1, "hasNext": false, "hasPrev": false }
+}
+```
 
 **Circuit body schema:**
 
@@ -259,7 +298,10 @@ Base URL: `http://localhost:5000/api`
 ### Production (Docker Compose)
 
 ```bash
-docker-compose up --build -d
+# 1. Set a strong JWT_SECRET in the root .env (openssl rand -hex 32)
+
+# 2. Build and start
+docker compose up --build -d
 ```
 
 Services:
@@ -267,6 +309,9 @@ Services:
 - **Frontend** — `http://localhost` (port 80)
 - **Backend** — `http://localhost:5000` (port 5000)
 - **MongoDB** — `localhost:27017` (port 27017)
+
+MongoDB and the backend both define container healthchecks; the backend waits
+for MongoDB to report healthy before starting.
 
 ### Environment Variables (Production)
 
@@ -326,22 +371,97 @@ docker build -t logic-gate-frontend ./frontend
 
 ### Backend
 
-| Command        | Description        |
-| -------------- | ------------------ |
-| `npm run dev`  | Start with nodemon |
-| `npm start`    | Production start   |
-| `npm run lint` | ESLint             |
-| `npm test`     | Jest               |
+| Command               | Description                              |
+| --------------------- | ---------------------------------------- |
+| `npm run dev`         | Start with nodemon                       |
+| `npm start`           | Production start                         |
+| `npm run lint`        | ESLint (src + tests)                     |
+| `npm test`            | Run the Jest suite                       |
+| `npm run test:watch`  | Jest in watch mode                       |
+| `npm run test:coverage` | Jest with a V8 coverage report         |
 
 ### Frontend
 
-| Command           | Description                 |
-| ----------------- | --------------------------- |
-| `npm run dev`     | Vite dev server (port 5173) |
-| `npm run build`   | Production build            |
-| `npm run preview` | Preview production build    |
-| `npm run lint`    | ESLint                      |
-| `npm test`        | Vitest                      |
+| Command                | Description                          |
+| ---------------------- | ------------------------------------ |
+| `npm run dev`          | Vite dev server (port 5173)          |
+| `npm run build`        | Production build                     |
+| `npm run preview`      | Preview production build             |
+| `npm run lint`         | ESLint                               |
+| `npm test`             | Run the Vitest suite (single pass)   |
+| `npm run test:watch`   | Vitest in watch mode                 |
+| `npm run test:ui`      | Vitest UI                            |
+| `npm run test:coverage`| Vitest with a V8 coverage report     |
+
+---
+
+## Testing
+
+Unit tests ship for **both** the frontend and the backend, targeting the pure
+logic (gate evaluation, serialization, validation) and the API surface (routes,
+controllers, middleware) rather than implementation details.
+
+### Backend — Jest + Supertest
+
+Native ESM (no Babel). The suite runs on Node's own module loader, which is why
+the `test` scripts set `--experimental-vm-modules`.
+
+```
+backend/
+├── jest.config.mjs            # ESM Jest config (roots: tests/)
+├── tests/
+│   ├── setup.js               # deterministic env vars (JWT_SECRET, …)
+│   ├── helpers/mockQuery.js   # chainable Mongoose query double
+│   ├── unit/
+│   │   ├── gates.test.js          # gate catalogue + pin counts (MUX8 guard)
+│   │   ├── strings.test.js        # escapeRegex (ReDoS) + normalizeText
+│   │   ├── simulation.test.js     # full truth tables + fixed-point engine
+│   │   ├── errorHandler.test.js   # ApiError + central handler
+│   │   ├── rateLimit.test.js      # fixed-window limiter
+│   │   ├── validation.test.js     # express-validator + zod schema
+│   │   ├── authMiddleware.test.js # authenticate / optionalAuth
+│   │   └── userModel.test.js      # User schema + bcrypt + toJSON
+│   └── integration/
+│       ├── authRoutes.test.js     # register/login/me/refresh via Supertest
+│       ├── circuitRoutes.test.js  # full CRUD + simulate + public gallery
+│       └── healthRoutes.test.js   # /health + /meta
+```
+
+Models are mocked with `jest.unstable_mockModule`, so **no MongoDB is required**
+to run the suite:
+
+```bash
+cd backend
+npm install
+npm test
+```
+
+### Frontend — Vitest + Testing Library
+
+Runs in a jsdom environment with MUI-aware setup (matchMedia / ResizeObserver
+polyfills in `src/setupTests.js`).
+
+```
+frontend/
+├── vitest.config.js           # jsdom + coverage config
+└── src/
+    ├── setupTests.js          # jest-dom + browser API polyfills
+    ├── test-utils/            # renderWithTheme() MUI wrapper
+    ├── utils/                 # gates / simulation / circuit / gateTemplates
+    ├── services/api.test.js
+    ├── store/authStore.test.js
+    ├── theme/theme.test.js
+    └── components/**/*.test.jsx
+```
+
+```bash
+cd frontend
+npm install
+npm test
+```
+
+> Unit tests deliberately avoid a live database and network: request/response
+> behaviour is verified against mocked models and a mocked axios instance.
 
 ---
 

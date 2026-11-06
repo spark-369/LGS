@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -13,10 +13,9 @@ import {
   Alert,
   Paper,
   Tooltip,
-  useTheme,
+  Pagination,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/SearchRounded';
-import MemoryRoundedIcon from '@mui/icons-material/MemoryRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded';
@@ -26,11 +25,13 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import { useNavigate, Link } from 'react-router-dom';
-import { circuitAPI } from '../services/api';
+import { circuitAPI, getErrorMessage } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import CircuitCard from '../components/circuit/CircuitCard';
 import { SkeletonGrid } from '../components/circuit/SkeletonCard';
 import EmptyState from '../components/circuit/EmptyState';
+
+const PAGE_SIZE = 12;
 
 function StatCard({ icon, label, value, color }) {
   return (
@@ -81,92 +82,91 @@ function StatCard({ icon, label, value, color }) {
 function PublicCircuits() {
   const [circuits, setCircuits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [view, setView] = useState('grid');
-  const [menuAnchor, setMenuAnchor] = useState(null);
-  const [menuCircuit, setMenuCircuit] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleting, setDeleting] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const theme = useTheme();
 
-  const showMessage = (message, severity = 'success') =>
-    setSnackbar({ open: true, message, severity });
+  const showMessage = useCallback(
+    (message, severity = 'success') => setSnackbar({ open: true, message, severity }),
+    []
+  );
 
-  const fetchCircuits = async () => {
+  // Debounce the search box so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const fetchCircuits = useCallback(async () => {
     setLoading(true);
+    setLoadError('');
     try {
-      const { data } = await circuitAPI.getPublic();
+      const { data } = await circuitAPI.getPublic({
+        page,
+        limit: PAGE_SIZE,
+        search: search || undefined,
+      });
       setCircuits(data.circuits || []);
-    } catch {
-      showMessage('Failed to load public circuits', 'error');
+      setTotal(data.pagination?.total ?? (data.circuits || []).length);
+    } catch (error) {
+      setLoadError(getErrorMessage(error, 'Failed to load public circuits'));
+      setCircuits([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, search]);
 
   useEffect(() => {
     fetchCircuits();
-  }, []);
+  }, [fetchCircuits]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return circuits;
-    return circuits.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(q) ||
-        c.description?.toLowerCase().includes(q) ||
-        c.owner?.name?.toLowerCase().includes(q)
-    );
-  }, [circuits, search]);
+  // The server already filtered and paginated the list.
+  const filtered = circuits;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const stats = useMemo(() => ({
-    total: circuits.length,
-    nodes: circuits.reduce((a, c) => a + (c.nodes?.length || 0), 0),
-    creators: new Set(circuits.map((c) => c.owner?._id).filter(Boolean)).size,
-  }), [circuits]);
+  const stats = useMemo(
+    () => ({
+      total,
+      nodes: circuits.reduce((acc, c) => acc + (c.gateCount || c.nodes?.length || 0), 0),
+      creators: new Set(circuits.map((c) => c.owner?._id).filter(Boolean)).size,
+    }),
+    [circuits, total]
+  );
 
   const handleDuplicate = async (id) => {
+    // Duplicating writes to the signed-in user's dashboard, so it must be
+    // gated on auth — otherwise the API 401s and the interceptor redirects.
+    if (!isAuthenticated) {
+      showMessage('Sign in to duplicate circuits into your dashboard', 'info');
+      navigate('/login', { state: { from: { pathname: '/public' } } });
+      return;
+    }
+
     try {
-      const { data } = await circuitAPI.duplicate(id);
-      setCircuits((prev) => [data.circuit, ...prev]);
+      await circuitAPI.duplicate(id);
       showMessage('Circuit duplicated to your dashboard');
-    } catch {
-      showMessage('Failed to duplicate circuit', 'error');
+    } catch (error) {
+      showMessage(getErrorMessage(error, 'Failed to duplicate circuit'), 'error');
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    try {
-      await circuitAPI.delete(deleteTarget._id);
-      setCircuits((prev) => prev.filter((c) => c._id !== deleteTarget._id));
-      showMessage('Circuit deleted');
-    } catch {
-      showMessage('Failed to delete circuit', 'error');
-    } finally {
-      setDeleting(false);
-      setDeleteTarget(null);
+  const handleOpen = (id) => {
+    if (!isAuthenticated) {
+      showMessage('Sign in to open the editor', 'info');
+      navigate('/login', { state: { from: { pathname: '/public' } } });
+      return;
     }
-  };
-
-  const openMenu = (e, circuit) => {
-    setMenuAnchor(e.currentTarget);
-    setMenuCircuit(circuit);
-  };
-  const closeMenu = () => {
-    setMenuAnchor(null);
-    setMenuCircuit(null);
-  };
-  const closeMenuThen = (action) => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    closeMenu();
-    if (action) setTimeout(action, 0);
+    navigate(`/editor/${id}`);
   };
 
   return (
@@ -259,15 +259,15 @@ function PublicCircuits() {
           <Typography variant="h6" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             Explore Circuits
             {!loading && (
-              <Chip size="small" label={filtered.length} sx={{ fontWeight: 700, ml: 0.5 }} />
+              <Chip size="small" label={total} sx={{ fontWeight: 700, ml: 0.5 }} />
             )}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             <TextField
               size="small"
               placeholder="Search circuits…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               sx={{ width: { xs: '100%', sm: 320 } }}
               InputProps={{
                 startAdornment: (
@@ -311,6 +311,21 @@ function PublicCircuits() {
           </Stack>
         </Stack>
 
+        {/* Error banner */}
+        {loadError && !loading && (
+          <Alert
+            severity="error"
+            sx={{ mb: 3 }}
+            action={
+              <Button color="inherit" size="small" onClick={fetchCircuits}>
+                Retry
+              </Button>
+            }
+          >
+            {loadError}
+          </Alert>
+        )}
+
         {/* Grid */}
         <Grid container spacing={3}>
           {loading && <SkeletonGrid count={6} Grid={Grid} />}
@@ -321,15 +336,30 @@ function PublicCircuits() {
                 <CircuitCard
                   circuit={circuit}
                   variant="public"
-                  onOpen={(id) => navigate(`/editor/${id}`)}
+                  onOpen={handleOpen}
                   onDuplicate={handleDuplicate}
                 />
               </Grid>
             ))}
         </Grid>
 
+        {/* Pagination */}
+        {!loading && totalPages > 1 && (
+          <Stack alignItems="center" sx={{ mt: 4 }}>
+            <Pagination
+              page={page}
+              count={totalPages}
+              onChange={(_, value) => setPage(value)}
+              color="primary"
+              shape="rounded"
+              showFirstButton
+              showLastButton
+            />
+          </Stack>
+        )}
+
         {/* Empty states */}
-        {!loading && filtered.length === 0 && (
+        {!loading && filtered.length === 0 && !loadError && (
           <Grid container>
             <EmptyState
               icon={search ? <SearchIcon fontSize="large" /> : <PublicRoundedIcon fontSize="large" />}

@@ -1,4 +1,37 @@
 import mongoose from 'mongoose';
+import {
+  GATE_TYPES,
+  MAX_NODES_PER_CIRCUIT,
+  MAX_EDGES_PER_CIRCUIT,
+} from '../constants/gates.js';
+
+const nodeSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    type: { type: String, required: true, enum: GATE_TYPES },
+    position: {
+      x: { type: Number, required: true },
+      y: { type: Number, required: true },
+    },
+    data: {
+      label: { type: String, default: '', maxlength: 60 },
+      value: { type: Boolean, default: false },
+      inputCount: { type: Number, default: 2, min: 0, max: 16 },
+    },
+  },
+  { _id: false }
+);
+
+const edgeSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    source: { type: String, required: true },
+    sourceHandle: { type: String, required: true, default: 'output-0' },
+    target: { type: String, required: true },
+    targetHandle: { type: String, required: true, default: 'input-0' },
+  },
+  { _id: false }
+);
 
 const circuitSchema = new mongoose.Schema(
   {
@@ -11,93 +44,32 @@ const circuitSchema = new mongoose.Schema(
     description: {
       type: String,
       trim: true,
+      default: '',
       maxlength: [500, 'Description cannot exceed 500 characters'],
     },
     owner: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+      index: true,
     },
-    nodes: [
-      {
-        id: { type: String, required: true },
-        type: {
-          type: String,
-          required: true,
-          enum: [
-            'INPUT',
-            'OUTPUT',
-            'AND',
-            'OR',
-            'NOT',
-            'NAND',
-            'NOR',
-            'XOR',
-            'XNOR',
-            'BUFFER',
-            'TRISTATE',
-            'AND3',
-            'OR3',
-            'NOR3',
-            'NAND3',
-            'XOR3',
-            'XNOR3',
-            'AND4',
-            'OR4',
-            'NAND4',
-            'NOR4',
-            'XOR4',
-            'XNOR4',
-            'MUX2',
-            'MUX4',
-            'AOI21',
-            'OAI21',
-            'MAJ3',
-            'MUX8',
-            'AOI22',
-            'OAI22',
-            'AOI31',
-            'OAI31',
-            'AOI33',
-            'OAI33',
-            'AOI32',
-            'OAI32',
-            'AND5',
-            'OR5',
-            'NAND5',
-            'NOR5',
-            'XOR5',
-            'XNOR5',
-            'EQ2',
-            'EQ3',
-            'MAJ4',
-            'MAJ5',
-          ],
-        },
-        position: {
-          x: { type: Number, required: true },
-          y: { type: Number, required: true },
-        },
-        data: {
-          label: { type: String, default: '' },
-          value: { type: Boolean, default: false },
-          inputCount: { type: Number, default: 2 },
-        },
+    nodes: {
+      type: [nodeSchema],
+      default: [],
+      validate: {
+        validator: (v) => v.length <= MAX_NODES_PER_CIRCUIT,
+        message: `A circuit cannot exceed ${MAX_NODES_PER_CIRCUIT} gates`,
       },
-    ],
-    edges: [
-      {
-        id: { type: String, required: true },
-        source: { type: String, required: true },
-        sourceHandle: { type: String, required: true },
-        target: { type: String, required: true },
-        targetHandle: { type: String, required: true },
-      },
-    ],
-    isPublic: {
-      type: Boolean,
-      default: false,
     },
+    edges: {
+      type: [edgeSchema],
+      default: [],
+      validate: {
+        validator: (v) => v.length <= MAX_EDGES_PER_CIRCUIT,
+        message: `A circuit cannot exceed ${MAX_EDGES_PER_CIRCUIT} wires`,
+      },
+    },
+    isPublic: { type: Boolean, default: false },
   },
   {
     timestamps: true,
@@ -107,6 +79,15 @@ const circuitSchema = new mongoose.Schema(
 );
 
 circuitSchema.index({ owner: 1, createdAt: -1 });
+circuitSchema.index({ isPublic: 1, createdAt: -1 });
 circuitSchema.index({ name: 'text', description: 'text' });
+
+circuitSchema.virtual('gateCount').get(function gateCount() {
+  return this.nodes?.length || 0;
+});
+
+circuitSchema.virtual('wireCount').get(function wireCount() {
+  return this.edges?.length || 0;
+});
 
 export const Circuit = mongoose.model('Circuit', circuitSchema);

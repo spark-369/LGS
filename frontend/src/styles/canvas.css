@@ -1,5 +1,13 @@
-/* React Flow canvas polish — works for both light & dark themes */
+/* ---------------------------------------------------------------------------
+   React Flow canvas polish.
 
+   The gate symbol styling itself lives in styles/global.css — it is shared by
+   the canvas, the palette and the circuit-card thumbnail, and global.css is
+   the only stylesheet guaranteed to be loaded in all three contexts.
+   --------------------------------------------------------------------------- */
+
+/* React Flow canvas
+   --------------------------------------------------------------------------- */
 .react-flow {
   --lgs-edge: #94a3b8;
 }
@@ -17,22 +25,9 @@
   z-index: 10;
 }
 
-.react-flow__edge-path {
-  stroke-width: 2;
-  transition: stroke 0.15s ease, stroke-width 0.15s ease;
-}
-
-.react-flow__edge.selected .react-flow__edge-path,
-.react-flow__edge:hover .react-flow__edge-path {
-  stroke: #4f46e5;
-  stroke-width: 3;
-}
-
+/* Handles: the node component positions them inside their own pin row, so
+   only the visual treatment lives here. */
 .react-flow__handle {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 2px solid #fff;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 
@@ -43,6 +38,17 @@
 
 .react-flow__handle-connecting {
   box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.25);
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #4f46e5;
+  stroke-width: 3;
 }
 
 /* Controls */
@@ -105,10 +111,7 @@
   border-color: rgba(148, 163, 184, 0.16);
 }
 
-[data-theme='dark'] .react-flow__handle {
-  border-color: #0b1120;
-}
-
 [data-theme='dark'] .react-flow__edge-path {
   stroke: #64748b;
 }
+

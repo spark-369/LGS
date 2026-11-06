@@ -1,38 +1,64 @@
 import { create } from 'zustand';
-import { authAPI } from '../services/api';
+import { authAPI, tokenStorage, getErrorMessage } from '../services/api';
 
-const useAuthStore = create((set, get) => ({
-  user: null,
-  token: localStorage.getItem('token'),
+const USER_KEY = 'lgs.user';
+
+const readStoredUser = () => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const persistUser = (user) => {
+  try {
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_KEY);
+  } catch {
+    /* ignore */
+  }
+};
+
+const useAuthStore = create((set) => ({
+  user: readStoredUser(),
+  token: tokenStorage.get(),
+  // `initializing` covers the silent session-restore on first paint; `loading`
+  // covers user-triggered submit actions.
+  initializing: Boolean(tokenStorage.get()),
   loading: false,
   error: null,
 
+  /** Validate any persisted token against the API on boot. */
   initialize: async () => {
-    const token = get().token;
-    if (!token) return;
+    const token = tokenStorage.get();
+    if (!token) {
+      set({ initializing: false, user: null, token: null });
+      return;
+    }
 
     try {
-      set({ loading: true });
-      const response = await authAPI.getMe();
-      set({ user: response.data.user, loading: false });
-    } catch (error) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      set({ token: null, user: null, loading: false });
+      const { data } = await authAPI.getMe();
+      persistUser(data.user);
+      set({ user: data.user, token, initializing: false, error: null });
+    } catch {
+      tokenStorage.clear();
+      persistUser(null);
+      set({ token: null, user: null, initializing: false });
     }
   },
 
   login: async (email, password) => {
     set({ loading: true, error: null });
     try {
-      const response = await authAPI.login({ email, password });
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      set({ user, token, loading: false });
+      const { data } = await authAPI.login({ email: email.trim(), password });
+      tokenStorage.set(data.token);
+      persistUser(data.user);
+      set({ user: data.user, token: data.token, loading: false });
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
+      const message = getErrorMessage(error, 'Login failed');
       set({ error: message, loading: false });
       return { success: false, message };
     }
@@ -41,24 +67,26 @@ const useAuthStore = create((set, get) => ({
   register: async (name, email, password) => {
     set({ loading: true, error: null });
     try {
-      const response = await authAPI.register({ name, email, password });
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      set({ user, token, loading: false });
+      const { data } = await authAPI.register({ name: name.trim(), email: email.trim(), password });
+      tokenStorage.set(data.token);
+      persistUser(data.user);
+      set({ user: data.user, token: data.token, loading: false });
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
+      const message = getErrorMessage(error, 'Registration failed');
       set({ error: message, loading: false });
       return { success: false, message };
     }
   },
 
   logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    tokenStorage.clear();
+    persistUser(null);
     set({ user: null, token: null, error: null });
   },
+
+  clearError: () => set({ error: null }),
 }));
 
 export default useAuthStore;
+

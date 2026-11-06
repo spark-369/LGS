@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   TextField,
   Button,
@@ -46,11 +46,17 @@ function Register() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const { register, loading, error } = useAuth();
+  const { register, loading, error, clearError } = useAuth();
   const navigate = useNavigate();
+
+  // Drop any stale error inherited from another auth page.
+  useEffect(() => {
+    clearError();
+  }, [clearError]);
 
   const strength = useMemo(() => getStrength(password), [password]);
   const mismatch = confirmPassword.length > 0 && password !== confirmPassword;
+  const tooShort = password.length > 0 && password.length < 6;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -202,7 +208,7 @@ function Register() {
           type="submit"
           variant="contained"
           size="large"
-          disabled={loading || mismatch}
+          disabled={loading || mismatch || tooShort}
           startIcon={
             loading ? (
               <CircularProgress size={18} color="inherit" />

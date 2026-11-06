@@ -69,6 +69,54 @@ body {
   animation: lgs-fade-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ---- Logic gate symbols (SVG) ------------------------------------------ */
+/* Defined globally (not in canvas.css) because the symbols render in three
+   contexts: the editor canvas, the palette, and the circuit-card thumbnail.
+   canvas.css only loads with the lazy Editor chunk, so the Dashboard would
+   otherwise paint the symbols solid black.
+   Stroke/fill use `currentColor`, so any ancestor can set the family accent. */
+.lgs-gate-symbol {
+  display: block;
+  overflow: visible;
+}
+
+.lgs-gate-symbol .lgs-sym-body path,
+.lgs-gate-symbol .lgs-sym-body rect {
+  fill: currentColor;
+  fill-opacity: 0.12;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.lgs-gate-symbol .lgs-sym-extra {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.lgs-gate-symbol .lgs-sym-bubble {
+  fill: var(--lgs-sym-bubble-bg, #ffffff);
+  stroke: currentColor;
+  stroke-width: 2.4;
+}
+
+.lgs-gate-symbol .lgs-sym-arity {
+  fill: currentColor;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: -0.02em;
+  pointer-events: none;
+  user-select: none;
+}
+
+[data-theme='dark'] .lgs-gate-symbol {
+  --lgs-sym-bubble-bg: #111827;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   TextField,
   Button,
@@ -17,7 +17,7 @@ import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import LoginRoundedIcon from '@mui/icons-material/LoginRounded';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import AuthLayout from '../components/auth/AuthLayout';
 
@@ -26,13 +26,22 @@ function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
-  const { login, loading, error } = useAuth();
+  const { login, loading, error, clearError } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Drop any stale error inherited from another auth page.
+  useEffect(() => {
+    clearError();
+  }, [clearError]);
+
+  // Return the user to wherever they were headed before the auth redirect.
+  const redirectTo = location.state?.from?.pathname || '/dashboard';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const result = await login(email, password);
-    if (result.success) navigate('/dashboard');
+    if (result.success) navigate(redirectTo, { replace: true });
   };
 
   return (
@@ -133,6 +142,10 @@ function Login() {
               variant="body2"
               fontWeight={600}
               underline="hover"
+              onClick={(e) => {
+                e.preventDefault();
+                window.alert('Password reset is not available yet. Please contact support.');
+              }}
               sx={{ cursor: 'pointer' }}
             >
               Forgot password?

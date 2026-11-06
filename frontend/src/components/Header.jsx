@@ -13,11 +13,12 @@ import {
   Typography,
   Tooltip,
   IconButton,
-  useTheme,
+  Stack,
 } from '@mui/material';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
+import PersonAddAlt1RoundedIcon from '@mui/icons-material/PersonAddAlt1Rounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { useNavigate, Link as RouterLink, useLocation } from 'react-router-dom';
@@ -35,10 +36,9 @@ function stringToColor(string = '') {
 }
 
 function Header() {
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const theme = useTheme();
   const [anchorEl, setAnchorEl] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const open = Boolean(anchorEl);
@@ -61,7 +61,9 @@ function Header() {
   const initial = (user?.name || user?.email || 'U').charAt(0).toUpperCase();
 
   const navItems = [
-    { label: 'Dashboard', to: '/dashboard', icon: <DashboardRoundedIcon fontSize="small" /> },
+    ...(isAuthenticated
+      ? [{ label: 'Dashboard', to: '/dashboard', icon: <DashboardRoundedIcon fontSize="small" /> }]
+      : []),
     { label: 'Public', to: '/public', icon: <PublicRoundedIcon fontSize="small" /> },
   ];
 
@@ -69,12 +71,14 @@ function Header() {
     location.pathname === to ||
     (to !== '/dashboard' && location.pathname.startsWith(to));
 
+  const homeTo = isAuthenticated ? '/dashboard' : '/public';
+
   return (
     <AppBar position="sticky">
       <Toolbar sx={{ justifyContent: 'space-between', minHeight: { xs: 60, sm: 64 } }}>
         <Box
           component={RouterLink}
-          to="/dashboard"
+          to={homeTo}
           sx={{ textDecoration: 'none', display: 'flex' }}
         >
           <Logo size="small" />
@@ -118,27 +122,43 @@ function Header() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <ThemeToggle />
 
-          {/* Desktop account */}
-          <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1 }}>
-            <Tooltip title="Account">
-              <Avatar
-                onClick={(e) => setAnchorEl(e.currentTarget)}
-                sx={{
-                  width: 38,
-                  height: 38,
-                  cursor: 'pointer',
-                  bgcolor: stringToColor(user?.name || user?.email),
-                  fontWeight: 700,
-                  fontSize: '1rem',
-                  border: '2px solid',
-                  borderColor: 'background.paper',
-                  boxShadow: 2,
-                }}
+          {/* Desktop: account menu when signed in, CTAs when signed out */}
+          {isAuthenticated ? (
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1 }}>
+              <Tooltip title="Account">
+                <Avatar
+                  onClick={(e) => setAnchorEl(e.currentTarget)}
+                  sx={{
+                    width: 38,
+                    height: 38,
+                    cursor: 'pointer',
+                    bgcolor: stringToColor(user?.name || user?.email),
+                    fontWeight: 700,
+                    fontSize: '1rem',
+                    border: '2px solid',
+                    borderColor: 'background.paper',
+                    boxShadow: 2,
+                  }}
+                >
+                  {initial}
+                </Avatar>
+              </Tooltip>
+            </Box>
+          ) : (
+            <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 1 }}>
+              <Button component={RouterLink} to="/login" color="inherit" sx={{ fontWeight: 600 }}>
+                Sign in
+              </Button>
+              <Button
+                component={RouterLink}
+                to="/register"
+                variant="contained"
+                startIcon={<PersonAddAlt1RoundedIcon fontSize="small" />}
               >
-                {initial}
-              </Avatar>
-            </Tooltip>
-          </Box>
+                Get started
+              </Button>
+            </Box>
+          )}
 
           {/* Mobile menu button */}
           <IconButton
@@ -226,34 +246,59 @@ function Header() {
             );
           })}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1, py: 1.5 }}>
-            <Avatar
-              sx={{
-                width: 36,
-                height: 36,
-                bgcolor: stringToColor(user?.name || user?.email),
-                fontWeight: 700,
-              }}
-            >
-              {initial}
-            </Avatar>
-            <Box sx={{ minWidth: 0, flex: 1 }}>
-              <Typography variant="subtitle2" noWrap fontWeight={700}>
-                {user?.name || 'User'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap display="block">
-                {user?.email}
-              </Typography>
-            </Box>
-            <Button
-              color="error"
-              startIcon={<LogoutRoundedIcon />}
-              onClick={() => {
-                setMobileOpen(false);
-                handleLogout();
-              }}
-            >
-              Logout
-            </Button>
+            {isAuthenticated ? (
+              <>
+                <Avatar
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    bgcolor: stringToColor(user?.name || user?.email),
+                    fontWeight: 700,
+                  }}
+                >
+                  {initial}
+                </Avatar>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="subtitle2" noWrap fontWeight={700}>
+                    {user?.name || 'User'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap display="block">
+                    {user?.email}
+                  </Typography>
+                </Box>
+                <Button
+                  color="error"
+                  startIcon={<LogoutRoundedIcon />}
+                  onClick={() => {
+                    setMobileOpen(false);
+                    handleLogout();
+                  }}
+                >
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <Stack direction="row" spacing={1.5} sx={{ width: '100%' }}>
+                <Button
+                  fullWidth
+                  component={RouterLink}
+                  to="/login"
+                  onClick={() => setMobileOpen(false)}
+                  variant="outlined"
+                >
+                  Sign in
+                </Button>
+                <Button
+                  fullWidth
+                  component={RouterLink}
+                  to="/register"
+                  onClick={() => setMobileOpen(false)}
+                  variant="contained"
+                >
+                  Get started
+                </Button>
+              </Stack>
+            )}
           </Box>
           <Box sx={{ height: 'env(safe-area-inset-bottom)' }} />
         </Box>

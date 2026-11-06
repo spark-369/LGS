@@ -2,64 +2,90 @@
 // Logic gate truth tables. Inputs arrive as an ordered boolean array whose
 // index matches the gate's input-pin index (input-0, input-1, ...).
 // Missing / unconnected pins are treated as LOW (false).
+//
+// Kept in sync with backend/src/services/simulation.js.
 // ---------------------------------------------------------------------------
-const GATE_LOGIC = {
-  INPUT: (inputs) => inputs[0],
-  OUTPUT: (inputs) => inputs[0],
-  BUFFER: (inputs) => inputs[0],
+import { GATE_INPUT_COUNTS } from './gates';
+
+const parity = (inputs) => inputs.filter(Boolean).length % 2 === 1;
+const allHigh = (inputs) => inputs.length > 0 && inputs.every(Boolean);
+
+// ---------------------------------------------------------------------------
+// Multiplexer helpers.
+//
+// Pin layout is data-first: D0..D(n-1) then S0..S(m-1). The select lines are
+// therefore read from the END of the input array, which keeps the decode
+// correct no matter how many data lines exist.
+// ---------------------------------------------------------------------------
+const muxSelect = (inputs, dataCount, selectCount) => {
+  let sel = 0;
+  for (let i = 0; i < selectCount; i += 1) {
+    // S0 is the least-significant select bit.
+    const pin = dataCount + i;
+    if (inputs[pin]) sel |= 1 << i;
+  }
+  return sel;
+};
+
+export const GATE_LOGIC = {
+  INPUT: (inputs) => Boolean(inputs[0]),
+  OUTPUT: (inputs) => Boolean(inputs[0]),
+  BUFFER: (inputs) => Boolean(inputs[0]),
   NOT: (inputs) => !inputs[0],
 
-  AND: (inputs) => inputs.length > 0 && inputs.every(Boolean),
+  AND: allHigh,
   OR: (inputs) => inputs.some(Boolean),
-  NAND: (inputs) => !(inputs.length > 0 && inputs.every(Boolean)),
+  NAND: (inputs) => !allHigh(inputs),
   NOR: (inputs) => !inputs.some(Boolean),
-  XOR: (inputs) => inputs.filter(Boolean).length % 2 === 1,
-  XNOR: (inputs) => inputs.filter(Boolean).length % 2 === 0,
+  XOR: parity,
+  XNOR: (inputs) => !parity(inputs),
 
   TRISTATE: (inputs) => Boolean(inputs[0]) && Boolean(inputs[1]),
 
-  AND3: (inputs) => inputs.length > 0 && inputs.every(Boolean),
+  AND3: allHigh,
   OR3: (inputs) => inputs.some(Boolean),
-  NAND3: (inputs) => !(inputs.length > 0 && inputs.every(Boolean)),
+  NAND3: (inputs) => !allHigh(inputs),
   NOR3: (inputs) => !inputs.some(Boolean),
-  XOR3: (inputs) => inputs.filter(Boolean).length % 2 === 1,
-  XNOR3: (inputs) => inputs.filter(Boolean).length % 2 === 0,
-  AND4: (inputs) => inputs.length > 0 && inputs.every(Boolean),
+  XOR3: parity,
+  XNOR3: (inputs) => !parity(inputs),
+  AND4: allHigh,
   OR4: (inputs) => inputs.some(Boolean),
-  NAND4: (inputs) => !(inputs.length > 0 && inputs.every(Boolean)),
+  NAND4: (inputs) => !allHigh(inputs),
   NOR4: (inputs) => !inputs.some(Boolean),
-  XOR4: (inputs) => inputs.filter(Boolean).length % 2 === 1,
-  XNOR4: (inputs) => inputs.filter(Boolean).length % 2 === 0,
+  XOR4: parity,
+  XNOR4: (inputs) => !parity(inputs),
+  AND5: allHigh,
+  OR5: (inputs) => inputs.some(Boolean),
+  NAND5: (inputs) => !allHigh(inputs),
+  NOR5: (inputs) => !inputs.some(Boolean),
+  XOR5: parity,
+  XNOR5: (inputs) => !parity(inputs),
 
-  MUX2: (inputs) => Boolean(inputs[2] ? inputs[1] : inputs[0]),
-  MUX4: (inputs) => {
-    const sel = (Number(inputs[5]) << 1) | Number(inputs[4]);
-    return Boolean(inputs[sel]);
-  },
-  AOI21: (inputs) => !(Boolean(inputs[0]) && Boolean(inputs[1]) || Boolean(inputs[2])),
+  // D0 D1 | S0
+  MUX2: (inputs) => Boolean(inputs[muxSelect(inputs, 2, 1)]),
+  // D0..D3 | S0 S1
+  MUX4: (inputs) => Boolean(inputs[muxSelect(inputs, 4, 2)]),
+  // D0..D7 | S0 S1 S2
+  MUX8: (inputs) => Boolean(inputs[muxSelect(inputs, 8, 3)]),
+
+  AOI21: (inputs) => !((Boolean(inputs[0]) && Boolean(inputs[1])) || Boolean(inputs[2])),
   OAI21: (inputs) => !((Boolean(inputs[0]) || Boolean(inputs[1])) && Boolean(inputs[2])),
-  MAJ3: (inputs) => inputs.filter(Boolean).length >= 2,
-
-  MUX8: (inputs) => {
-    const sel = ((Number(inputs[9]) || 0) << 2) | ((Number(inputs[8]) || 0) << 1) | (Number(inputs[7]) || 0);
-    return Boolean(inputs[sel]);
-  },
-  AOI22: (inputs) => !((Boolean(inputs[0]) && Boolean(inputs[1])) || (Boolean(inputs[2]) && Boolean(inputs[3])) || Boolean(inputs[4])),
-  OAI22: (inputs) => !(((Boolean(inputs[0]) || Boolean(inputs[1])) && (Boolean(inputs[2]) || Boolean(inputs[3])) && Boolean(inputs[4]))),
+  AOI22: (inputs) =>
+    !(
+      (Boolean(inputs[0]) && Boolean(inputs[1])) ||
+      (Boolean(inputs[2]) && Boolean(inputs[3])) ||
+      Boolean(inputs[4])
+    ),
+  OAI22: (inputs) =>
+    !(
+      (Boolean(inputs[0]) || Boolean(inputs[1])) &&
+      (Boolean(inputs[2]) || Boolean(inputs[3])) &&
+      Boolean(inputs[4])
+    ),
   AOI31: (inputs) =>
     !((Boolean(inputs[0]) && Boolean(inputs[1]) && Boolean(inputs[2])) || Boolean(inputs[3])),
   OAI31: (inputs) =>
-    !(((Boolean(inputs[0]) || Boolean(inputs[1]) || Boolean(inputs[2])) && Boolean(inputs[3]))),
-  AOI33: (inputs) =>
-    !(
-      (Boolean(inputs[0]) && Boolean(inputs[1]) && Boolean(inputs[2])) ||
-      (Boolean(inputs[3]) && Boolean(inputs[4]) && Boolean(inputs[5]))
-    ),
-  OAI33: (inputs) =>
-    !(
-      (Boolean(inputs[0]) || Boolean(inputs[1]) || Boolean(inputs[2])) &&
-      (Boolean(inputs[3]) || Boolean(inputs[4]) || Boolean(inputs[5]))
-    ),
+    !((Boolean(inputs[0]) || Boolean(inputs[1]) || Boolean(inputs[2])) && Boolean(inputs[3])),
   AOI32: (inputs) =>
     !(
       (Boolean(inputs[0]) && Boolean(inputs[1]) && Boolean(inputs[2])) ||
@@ -70,22 +96,25 @@ const GATE_LOGIC = {
       (Boolean(inputs[0]) || Boolean(inputs[1]) || Boolean(inputs[2])) &&
       (Boolean(inputs[3]) || Boolean(inputs[4]))
     ),
-  AND5: (inputs) => inputs.length > 0 && inputs.every(Boolean),
-  OR5: (inputs) => inputs.some(Boolean),
-  NAND5: (inputs) => !(inputs.length > 0 && inputs.every(Boolean)),
-  NOR5: (inputs) => !inputs.some(Boolean),
-  XOR5: (inputs) => inputs.filter(Boolean).length % 2 === 1,
-  XNOR5: (inputs) => inputs.filter(Boolean).length % 2 === 0,
-  EQ2: (inputs) => inputs.length >= 2 && inputs[0] === inputs[1],
-  EQ3: (inputs) => inputs.length >= 3 && inputs[0] === inputs[1] && inputs[1] === inputs[2],
+  AOI33: (inputs) =>
+    !(
+      (Boolean(inputs[0]) && Boolean(inputs[1]) && Boolean(inputs[2])) ||
+      (Boolean(inputs[3]) && Boolean(inputs[4]) && Boolean(inputs[5]))
+    ),
+  OAI33: (inputs) =>
+    !(
+      (Boolean(inputs[0]) || Boolean(inputs[1]) || Boolean(inputs[2])) &&
+      (Boolean(inputs[3]) || Boolean(inputs[4]) || Boolean(inputs[5]))
+    ),
+
+  MAJ3: (inputs) => inputs.filter(Boolean).length >= 2,
   MAJ4: (inputs) => inputs.filter(Boolean).length >= 3,
   MAJ5: (inputs) => inputs.filter(Boolean).length >= 3,
+  EQ2: (inputs) => inputs.length >= 2 && inputs[0] === inputs[1],
+  EQ3: (inputs) =>
+    inputs.length >= 3 && inputs[0] === inputs[1] && inputs[1] === inputs[2],
 };
 
-const evaluateGate = (type, inputs) => {
-  const fn = GATE_LOGIC[type];
-  return fn ? Boolean(fn(inputs)) : false;
-};
 
 // Parse the pin index out of a handle id like "input-0" -> 0.
 const handleIndex = (handleId) => {
@@ -102,11 +131,11 @@ const handleIndex = (handleId) => {
  * even feedback loops (which stabilise or oscillate within a bounded number
  * of passes). Input-pin ordering is preserved via each edge's targetHandle.
  *
- * @param {Array} nodes - [{ id, type, data:{ value } }]
+ * @param {Array} nodes - [{ id, type, data:{ value, inputCount } }]
  * @param {Array} edges - [{ source, target, sourceHandle, targetHandle }]
  * @returns {{ nodes: Array, outputs: Object, values: Object }}
  */
-export const simulateCircuit = (nodes, edges) => {
+export const simulateCircuit = (nodes = [], edges = []) => {
   const values = new Map();
   const nodeById = new Map();
 
@@ -125,14 +154,20 @@ export const simulateCircuit = (nodes, edges) => {
 
   const gateInputCount = (node) => {
     if (node.type === 'INPUT') return 0;
-    return Math.max(1, Number(node.data?.inputCount) || 1);
+    const declared = Number(node.data?.inputCount);
+    if (Number.isFinite(declared) && declared > 0) return declared;
+    return GATE_INPUT_COUNTS[node.type] || 1;
   };
 
   const computeNodeValue = (node) => {
     if (node.type === 'INPUT') return Boolean(node.data?.value);
 
     const edgesIn = incoming.get(node.id) || [];
-    const size = Math.max(gateInputCount(node), ...edgesIn.map((e) => handleIndex(e.targetHandle) + 1), 1);
+    const size = Math.max(
+      gateInputCount(node),
+      ...edgesIn.map((e) => handleIndex(e.targetHandle) + 1),
+      1
+    );
     const inputs = new Array(size).fill(false);
 
     for (const edge of edgesIn) {
@@ -168,4 +203,9 @@ export const simulateCircuit = (nodes, edges) => {
     outputs,
     values: Object.fromEntries(values),
   };
+};
+
+export const evaluateGate = (type, inputs = []) => {
+  const fn = GATE_LOGIC[type];
+  return fn ? Boolean(fn(inputs)) : false;
 };

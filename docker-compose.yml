@@ -9,6 +9,12 @@ services:
       - mongodb_data:/data/db
     ports:
       - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - app-network
 
@@ -22,11 +28,15 @@ services:
       NODE_ENV: production
       PORT: 5000
       MONGODB_URI: mongodb://mongodb:27017/logic-gate-simulator
-      CLIENT_URL: http://localhost
+      # REQUIRED. Supplied by the root `.env` file — never commit a real secret.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in the root .env file}
+      JWT_EXPIRE: ${JWT_EXPIRE:-7d}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost}
     ports:
       - "5000:5000"
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -49,3 +59,4 @@ volumes:
 networks:
   app-network:
     driver: bridge
+
